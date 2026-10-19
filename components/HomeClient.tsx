@@ -1,75 +1,83 @@
 'use client';
 import { useEffect, useRef } from 'react';
 
+const BOOT_LINES: [string, string][] = [
+  ['dim', '> initialising duc-than.dev...'],
+  ['ok', '[OK] personality.json loaded'],
+  ['ok', '[OK] backend_experience: 4yrs mounted'],
+  ['ok', '[OK] rag_pipeline.py compiled'],
+  ['dim', '> starting portfolio server...'],
+];
+
+const BOOT_LINE_GAP = 340;
+const BOOT_HOLD = 800;
+
 export default function HomeClient() {
   const bootRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
+    const observers: IntersectionObserver[] = [];
+    let twTimer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+
     // ── Cursor glow ──
     const glow = cursorRef.current;
-    if (glow) {
-      const onMove = (e: MouseEvent) => {
-        glow.style.left = e.clientX + 'px';
-        glow.style.top = e.clientY + 'px';
-        glow.style.opacity = '1';
-      };
-      window.addEventListener('mousemove', onMove);
-    }
+    const onMove = (e: MouseEvent) => {
+      if (!glow) return;
+      glow.style.left = `${e.clientX}px`;
+      glow.style.top = `${e.clientY}px`;
+      glow.style.opacity = '1';
+    };
+    window.addEventListener('mousemove', onMove);
 
     // ── Boot sequence ──
     const boot = bootRef.current;
-    if (!boot) return;
-
-    const lines = [
-      ['dim', '> initialising duc-than.dev...'],
-      ['ok', '[OK] personality.json loaded'],
-      ['ok', '[OK] backend_experience: 4yrs mounted'],
-      ['ok', '[OK] rag_pipeline.py compiled'],
-      ['dim', '> starting portfolio server...'],
-    ];
-
-    const feed = boot.querySelector('.boot-feed') as HTMLElement;
-    const bar = boot.querySelector('.boot-bar i') as HTMLElement;
+    const feed = boot?.querySelector<HTMLElement>('.boot-feed');
+    const bar = boot?.querySelector<HTMLElement>('.boot-bar i');
 
     let delay = 0;
-    lines.forEach((line) => {
-      setTimeout(() => {
-        const el = document.createElement('div');
-        el.className = 'boot-line';
-        el.innerHTML = `<span class="${line[0]}">${line[1]}</span>`;
-        feed.appendChild(el);
-      }, delay);
-      delay += 340;
+    BOOT_LINES.forEach(([tone, text]) => {
+      timeouts.push(setTimeout(() => {
+        const line = document.createElement('div');
+        line.className = 'boot-line';
+        const span = document.createElement('span');
+        span.className = tone;
+        span.textContent = text;
+        line.appendChild(span);
+        feed?.appendChild(line);
+      }, delay));
+      delay += BOOT_LINE_GAP;
     });
 
-    setTimeout(() => {
+    timeouts.push(setTimeout(() => {
       if (bar) bar.style.width = '100%';
-    }, delay);
+    }, delay));
 
-    setTimeout(() => {
-      boot.classList.add('done');
-      document.body.classList.remove('booting');
+    timeouts.push(setTimeout(() => {
+      if (cancelled) return;
+      boot?.classList.add('done');
 
       // ── Reveal on scroll ──
-      const reveals = document.querySelectorAll<HTMLElement>('.reveal');
-      const io = new IntersectionObserver(
-        (entries) => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('in'); }),
+      const revealIo = new IntersectionObserver(
+        entries => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('in'); }),
         { threshold: 0.1 }
       );
-      reveals.forEach(el => io.observe(el));
+      observers.push(revealIo);
+      document.querySelectorAll<HTMLElement>('.reveal').forEach(el => revealIo.observe(el));
 
       // ── Counter animation ──
-      const counters = document.querySelectorAll<HTMLElement>('[data-count]');
-      const counterIo = new IntersectionObserver((entries) => {
+      const counterIo = new IntersectionObserver(entries => {
         entries.forEach(entry => {
           if (!entry.isIntersecting) return;
           const el = entry.target as HTMLElement;
-          const target = parseFloat(el.dataset.count!);
+          const target = parseFloat(el.dataset.count ?? '0');
           const dec = parseInt(el.dataset.dec ?? '0', 10);
           const duration = 1500;
           const start = performance.now();
           const tick = (now: number) => {
+            if (cancelled) return;
             const progress = Math.min((now - start) / duration, 1);
             const ease = 1 - Math.pow(1 - progress, 3);
             el.textContent = (target * ease).toFixed(dec);
@@ -79,43 +87,49 @@ export default function HomeClient() {
           counterIo.unobserve(el);
         });
       }, { threshold: 0.5 });
-      counters.forEach(el => counterIo.observe(el));
+      observers.push(counterIo);
+      document.querySelectorAll<HTMLElement>('[data-count]').forEach(el => counterIo.observe(el));
 
       // ── Typewriter ──
       const tw = document.querySelector<HTMLElement>('[data-typewriter]');
-      if (tw) {
-        const roles: string[] = JSON.parse(tw.dataset.typewriter!);
-        const text = tw.querySelector('.tw-text') as HTMLElement;
-        let ri = 0, ci = 0, deleting = false;
-        const tick = () => {
-          const current = roles[ri];
-          if (deleting) {
-            text.textContent = current.slice(0, --ci);
-            if (ci === 0) { deleting = false; ri = (ri + 1) % roles.length; }
-            setTimeout(tick, 60);
-          } else {
-            text.textContent = current.slice(0, ++ci);
-            if (ci === current.length) { deleting = true; setTimeout(tick, 2200); return; }
-            setTimeout(tick, 90);
-          }
-        };
-        tick();
+      const text = tw?.querySelector<HTMLElement>('.tw-text');
+      if (!tw || !text) return;
+
+      let roles: string[];
+      try {
+        roles = JSON.parse(tw.dataset.typewriter ?? '[]');
+      } catch {
+        return;
       }
+      if (!roles.length) return;
 
-      // ── Nav scrolled state ──
-      const nav = document.querySelector('.nav');
-      const onScroll = () => nav?.classList.toggle('scrolled', window.scrollY > 40);
-      window.addEventListener('scroll', onScroll, { passive: true });
-
-      // ── Nav mobile toggle ──
-      const toggle = document.querySelector('.nav-toggle');
-      const navLinks = document.querySelector('.nav-links');
-      toggle?.addEventListener('click', () => navLinks?.classList.toggle('open'));
-
-    }, delay + 800);
+      let ri = 0, ci = 0, deleting = false;
+      const type = () => {
+        if (cancelled) return;
+        const current = roles[ri];
+        if (deleting) {
+          text.textContent = current.slice(0, --ci);
+          if (ci === 0) { deleting = false; ri = (ri + 1) % roles.length; }
+          twTimer = setTimeout(type, 60);
+        } else {
+          text.textContent = current.slice(0, ++ci);
+          if (ci === current.length) {
+            deleting = true;
+            twTimer = setTimeout(type, 2200);
+            return;
+          }
+          twTimer = setTimeout(type, 90);
+        }
+      };
+      type();
+    }, delay + BOOT_HOLD));
 
     return () => {
-      if (glow) window.removeEventListener('mousemove', () => {});
+      cancelled = true;
+      window.removeEventListener('mousemove', onMove);
+      timeouts.forEach(clearTimeout);
+      if (twTimer) clearTimeout(twTimer);
+      observers.forEach(io => io.disconnect());
     };
   }, []);
 

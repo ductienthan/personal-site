@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "migrate": "node -r ts-node/register scripts/migrate.ts",
+    "migrate": "tsx scripts/migrate.ts",
     "seed": "npx tsx scripts/seed.ts"
   },
   "dependencies": {
